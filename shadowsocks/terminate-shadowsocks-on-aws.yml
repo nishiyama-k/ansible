@@ -1,0 +1,7 @@
+- name: Terminate Shadowsocks Server on AWS
+  hosts: localhost
+  connection: localhost
+  vars:
+    ENV_NAME: "develop"
+  roles:
+    - ss/terminate

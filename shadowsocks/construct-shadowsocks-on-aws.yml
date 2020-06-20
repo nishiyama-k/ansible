@@ -1,0 +1,8 @@
+- name: Create Shadowsocks Server on AWS
+  hosts: localhost
+  connection: localhost
+  vars:
+    ENV_NAME: "develop"
+    VERSION: "0.0.2"
+  roles:
+    - ss/init
