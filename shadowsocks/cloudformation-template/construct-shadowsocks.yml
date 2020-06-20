@@ -1,0 +1,239 @@
+Description: Construct shadowsocks resources
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Environment configuration"
+        Parameters:
+          - Version
+          - EnvName
+          - VPCCIDR
+      -
+        Label:
+          default: "Instance configuration"
+        Parameters:
+          - AMIID
+          - InstanceType
+          - KeyPair
+      -
+        Label:
+          default: "Shadowsocks connection configuration"
+        Parameters:
+          - Password
+          - Port
+          - Cipher
+
+
+Parameters:
+  Version:
+    Type: String
+    Default: 1.0.0
+    Description: ex) 1.0.0
+  EnvName:
+    Type: String
+    Default: sample
+  VPCCIDR:
+    Type: String
+    Default: 10.0.0.0/24
+    Description: 10.0.0.0/24
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  InstanceType:
+    Type: String
+    Default: t3.nano
+    AllowedValues:
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: shadowsocks-keypair
+  AMIID:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0c3ae97724b825432
+    Description: Default one is Amazon Linux AMI 2018.03.0 (HVM), SSD Volume Type
+  Password:
+    Type: String
+    Default: password
+    Description: password to connect shadowsock
+  Port:
+    Type: String
+    Default: 8388
+    Description: port to connect shadowsocks
+  Cipher:
+    Type: String
+    Default: aes-256-cfb
+    Description: cipher method to connect shadowsocks
+    AllowedValues:
+      - aes-256-cfb
+      - aes-128-cfb
+
+
+Resources:
+  # Network
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !Ref VPCCIDR
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-shadowsocks-vpc
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-shadowsocks-igw
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-shadowsocks-rtb
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+  RouteTableInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref VPCCIDR
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-shadowsocks-public-subnet
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+  RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet
+
+  # EC2
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Open 8388 port from Internet
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-shadowsocks-sg
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        CidrIp: "0.0.0.0/0"
+        Description: "Open shadowsocks default port from Internet"
+        FromPort: 8388
+        ToPort: 8388
+      - IpProtocol: tcp
+        CidrIp: "0.0.0.0/0"
+        Description: "Open ssh port from Internet"
+        FromPort: 22
+        ToPort: 22
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMIID
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPair
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      SubnetId: !Ref Subnet
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-shadowsocks-server
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+      UserData:
+        Fn::Base64:
+          !Sub >
+            #!/bin/bash -x
+
+            sudo yum clean all -y
+
+            sudo yum update -y
+
+            sudo pip install shadowsocks
+
+            sudo ln -s /usr/local/bin/ssserver /usr/bin/ssserver
+
+            sudo ssserver -d start -s 0.0.0.0 -p ${Port} -k ${Password} -m ${Cipher} --fast-open
+
+            exit 0
+
+
+Outputs:
+  Version:
+    Value: !Ref Version
+    Export:
+      Name: !Sub ${AWS::StackName}-Version
+  EnvName:
+    Value: !Ref EnvName
+    Export:
+      Name: !Sub ${AWS::StackName}-EnvName
+  VPC:
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC
+  InternetGateway:
+    Value: !Ref InternetGateway
+    Export:
+      Name: !Sub ${AWS::StackName}-InternetGateway
+  RouteTable:
+    Value: !Ref RouteTable
+    Export:
+      Name: !Sub ${AWS::StackName}-RouteTable
+  Subnet:
+    Value: !Ref Subnet
+    Export:
+      Name: !Sub ${AWS::StackName}-Subnet
+  SecurityGroup:
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroup
+  EC2Instance:
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub ${AWS::StackName}-EC2Instance
+  ServerIP:
+    Value: !GetAtt EC2Instance.PublicIp
+    Export:
+      Name: !Sub ${AWS::StackName}-ServerIP
