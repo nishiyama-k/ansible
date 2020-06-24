@@ -1,0 +1,682 @@
+Description: Construct high availablity resources
+Parameters:
+  Version:
+    Type: String
+    Default: 1.0.0
+    Description: ex) 1.0.0
+  EnvName:
+    Type: String
+    Default: sample
+  AdminCIDR:
+    Type: String
+  VPCCIDR:
+    Type: String
+    Default: 10.0.0.0/24
+    Description: 10.0.0.0/24
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PublicSubnetCIDR1:
+    Type: String
+    Default: 10.0.0.0/26
+    Description: 10.0.0.0/26
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PublicSubnetCIDR2:
+    Type: String
+    Default: 10.0.0.64/26
+    Description: 10.0.0.0/26
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PrivateSubnetCIDR1:
+    Type: String
+    Default: 10.0.0.128/26
+    Description: 10.0.0.128/26
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PrivateSubnetCIDR2:
+    Type: String
+    Default: 10.0.0.192/26
+    Description: 10.0.0.192/26
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: shadowsocks-keypair
+  AMIID:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0278fe6949f6b1a06
+    Description: Ubuntu Server 18.04 LTS (HVM), SSD Volume Type
+
+
+Resources:
+  # Network
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !Ref VPCCIDR
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-vpc
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-igw
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Subnet
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCIDR1
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-public-1
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCIDR2
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-public-2
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCIDR1
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-private-1
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCIDR2
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-subnet-2
+      - Key: Version
+        Value: !Ref Version
+      - Key: EnvName
+        Value: !Ref EnvName
+
+  # NatGateway
+  Nat1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-nat-1
+  NatEIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-nat-1
+  Nat2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-nat-2
+  NatEIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-nat-2
+
+  # Route Table
+  PublicRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-public-rtb-1
+  PublicRouteInternet1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicRouteInternet1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      SubnetId: !Ref PublicSubnet1
+  PublicRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-public-rtb-2
+  PublicRouteInternet2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicRouteInternet2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      SubnetId: !Ref PublicSubnet2
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-private-rtb-1
+  PrivateRouteInternet1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref Nat1
+  PrivateRouteInternet1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-private-rtb-2
+  PrivateRouteInternet2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref Nat2
+  PrivateRouteInternet2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+
+  # EC2
+  NginxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Nginx Subnet
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-nginx-sg
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        SourceSecurityGroupId: !Ref ALBSecurityGroup
+        Description: "Open http port from ALB SecurityGroup"
+        FromPort: 80
+        ToPort: 80
+      - IpProtocol: tcp
+        SourceSecurityGroupId: !Ref BastionSecurityGroup
+        Description: "Open from BastionSecurityGroup"
+        FromPort: 0
+        ToPort: 65535
+  PrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private Subnet
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-private-sg
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        SourceSecurityGroupId: !Ref BastionSecurityGroup
+        Description: "Open from BastionSecurityGroup"
+        FromPort: 0
+        ToPort: 65535
+      - IpProtocol: tcp
+        SourceSecurityGroupId: !Ref NginxSecurityGroup
+        Description: "Open from Nginx SecurityGroup"
+        FromPort: 0
+        ToPort: 65535
+      - IpProtocol: tcp
+        SourceSecurityGroupId: !Ref ALBSecurityGroup
+        Description: "Open http port from ALB SecurityGroup"
+        FromPort: 80
+        ToPort: 80
+  PrivateSecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateSecurityGroup
+      Description: "self"
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !GetAtt PrivateSecurityGroup.GroupId
+
+  NginxLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${EnvName}-nginx-template
+      LaunchTemplateData:
+        ImageId: !Ref AMIID
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+        - !Ref NginxSecurityGroup
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${EnvName}-nginx-server
+        UserData:
+          Fn::Base64:
+            !Sub >
+              #!/bin/bash -xe
+
+              sudo apt-get update -y
+
+              sudo apt-get install nginx -y
+
+              sudo service nginx restart
+
+              exit 0
+
+  APLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${EnvName}-ap-template
+      LaunchTemplateData:
+        ImageId: !Ref AMIID
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+        - !Ref PrivateSecurityGroup
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${EnvName}-ap-server
+        UserData:
+          Fn::Base64:
+            !Sub >
+              #!/bin/bash -xe
+
+              sudo apt-get update -y
+
+              sudo apt-get install nginx -y
+
+              sudo service nginx restart
+
+              exit 0
+
+  NginxTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${EnvName}-nginx-target-group
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 29
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: '80'
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref VPC
+
+  APTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${EnvName}-ap-target-group
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 29
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: '80'
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref VPC
+
+  NginxServerGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: prioritized
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref NginxLaunchTemplate
+            Version: !GetAtt NginxLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: t2.small
+              WeightedCapacity: 1
+            - InstanceType: t3.small
+              WeightedCapacity: 1
+      MinSize: 3
+      MaxSize: 3
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs:
+      - !Ref NginxTargetGroup
+      MetricsCollection:
+      - Granularity: 1Minute
+      VPCZoneIdentifier:
+      - !Ref PublicSubnet1
+      - !Ref PublicSubnet2
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-nginx-server-group
+        PropagateAtLaunch: false
+
+  APServerGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: prioritized
+          OnDemandBaseCapacity: 1
+          OnDemandPercentageAboveBaseCapacity: 50
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref APLaunchTemplate
+            Version: !GetAtt APLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: t2.small
+              WeightedCapacity: 1
+            - InstanceType: t3.small
+              WeightedCapacity: 1
+      MinSize: 3
+      MaxSize: 3
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs:
+      - !Ref APTargetGroup
+      MetricsCollection:
+      - Granularity: 1Minute
+      VPCZoneIdentifier:
+      - !Ref PrivateSubnet1
+      - !Ref PrivateSubnet2
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-ap-server-group
+        PropagateAtLaunch: false
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${EnvName}-ALB-SecurigyGroup
+      GroupDescription: SecurityGroup for ApplicationLoadBalancer
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-ALB-SecurigyGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        CidrIp: "0.0.0.0/0"
+        Description: "Open http port from Internet"
+        FromPort: 80
+        ToPort: 80
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${EnvName}-ALB
+      Scheme: internet-facing
+      Subnets:
+      - !Ref PublicSubnet1
+      - !Ref PublicSubnet2
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: '3600'
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-ALB
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        ForwardConfig:
+          TargetGroups:
+          - TargetGroupArn: !Ref NginxTargetGroup
+            Weight: 1
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  APListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn: !Ref APTargetGroup
+      Conditions:
+      - Field: path-pattern
+        Values:
+        - /ap-server/*
+      ListenerArn: !Ref Listener
+      Priority: 100
+
+  # S3
+  SiteBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: Private
+      BucketName: !Sub "${AWS::StackName}-bucket"
+
+  # WAF
+  WAFWebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub ${EnvName}-web-acl
+      Scope: REGIONAL
+      Description: !Sub WebACL ${EnvName}
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub ${EnvName}-web-acl-metric
+      Rules:
+        -
+          Name: !Sub ${EnvName}-blacklist-ipset
+          Priority: 10
+          Statement:
+            IPSetReferenceStatement: !GetAtt  BlackListIPSet.Arn
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub ${EnvName}-blacklist-ipset
+            SampledRequestsEnabled: false
+          Action:
+            Block: {}
+        -
+          Name: AWS-AWSManagedRulesAmazonIpReputationList
+          Priority: 100
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesAmazonIpReputationList
+            SampledRequestsEnabled: false
+        -
+          Name: AWS-AWSManagedRulesCommonRuleSet
+          Priority: 110
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesCommonRuleSet
+            SampledRequestsEnabled: false
+        -
+          Name: AWS-AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 120
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesKnownBadInputsRuleSet
+            SampledRequestsEnabled: false
+        -
+          Name: AWS-AWSManagedRulesLinuxRuleSet
+          Priority: 130
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesLinuxRuleSet
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesLinuxRuleSet
+            SampledRequestsEnabled: false
+  WAFWebACLAssosiationALB:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref LoadBalancer
+      WebACLArn: !GetAtt WAFWebACL.Arn
+  BlackListIPSet:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Description: !Sub ${EnvName} Black List
+      IPAddressVersion: IPV4
+      Name: !Sub ${EnvName}-black-list
+      Scope: REGIONAL
+      Addresses: []
+
+
+  # Bastion
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMIID
+      InstanceType: t2.small
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-bastion
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Bastion Subnet
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-bastion-sg
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        CidrIp: !Ref AdminCIDR
+        Description: "Open ssh port from Admin IP"
+        FromPort: 22
+        ToPort: 22
+  BastionEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-bastion-server
+  BastionEIPAssociate:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt BastionEIP.AllocationId
+      InstanceId: !Ref BastionInstance
+
+  # Database
+  DBMasterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMIID
+      InstanceType: t2.small
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref PrivateSecurityGroup
+      SubnetId: !Ref PrivateSubnet1
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-db-master
+  DBSlaveInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMIID
+      InstanceType: t2.small
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref PrivateSecurityGroup
+      SubnetId: !Ref PrivateSubnet2
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvName}-db-slave
+
+Outputs:
+  Version:
+    Value: !Ref Version
+    Export:
+      Name: !Sub ${AWS::StackName}-Version
+  EnvName:
+    Value: !Ref EnvName
+    Export:
+      Name: !Sub ${AWS::StackName}-EnvName
+  VPC:
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC

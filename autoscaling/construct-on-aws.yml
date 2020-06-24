@@ -1,0 +1,9 @@
+- name: Create Autoscaling environment on AWS
+  hosts: localhost
+  connection: localhost
+  vars:
+    ENV_NAME: "sample-develop"
+    VERSION: "0.0.1"
+    ADMIN_IP: "126.255.4.42/32"
+  roles:
+    - init

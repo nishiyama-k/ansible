@@ -1,0 +1,2 @@
+CLOUDFORMATION_TEMPLATE_DIR: "{{ playbook_dir }}/cloudformation-template"
+TEMPLATE_FILE: "construct.yml"
