@@ -1,0 +1,7 @@
+- name: Terminate resources on AWS
+  hosts: localhost
+  connection: localhost
+  vars:
+    ENV_NAME: "sample-develop"
+  roles:
+    - terminate
