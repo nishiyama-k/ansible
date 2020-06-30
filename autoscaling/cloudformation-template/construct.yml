@@ -1,4 +1,30 @@
 Description: Construct high availablity resources
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Basic Configuration"
+        Parameters:
+          - Version
+          - EnvName
+          - AdminCIDR
+      -
+        Label:
+          default: "Network Configuration"
+        Parameters:
+          - VPCCIDR
+          - PublicSubnetCIDR1
+          - PublicSubnetCIDR2
+          - PrivateSubnetCIDR1
+          - PrivateSubnetCIDR2
+      -
+        Label:
+          default: "Instance Configuration"
+        Parameters:
+          - KeyPairName
+          - AMIID
+
 Parameters:
   Version:
     Type: String
@@ -6,9 +32,10 @@ Parameters:
     Description: ex) 1.0.0
   EnvName:
     Type: String
-    Default: sample
+    Default: my-develop
   AdminCIDR:
     Type: String
+    Default: 0.0.0.0/0
   VPCCIDR:
     Type: String
     Default: 10.0.0.0/24
@@ -41,7 +68,7 @@ Parameters:
     ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
-    Default: shadowsocks-keypair
+    Default: my-keypair
   AMIID:
     Type: AWS::EC2::Image::Id
     Default: ami-0278fe6949f6b1a06
@@ -333,18 +360,18 @@ Resources:
 
               sudo apt-get update -y
 
-              sudo apt-get install nginx -y
+              sudo apt-get install apache2 -y
 
-              sudo service nginx restart
+              sudo service apache2 restart
 
               exit 0
 
   NginxTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${EnvName}-nginx-target-group
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 29
+      Name: !Sub ${EnvName}-nginx-group
+      HealthCheckIntervalSeconds: 15
+      HealthCheckTimeoutSeconds: 10
       UnhealthyThresholdCount: 2
       HealthyThresholdCount: 2
       HealthCheckPath: /
@@ -360,9 +387,9 @@ Resources:
   APTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${EnvName}-ap-target-group
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 29
+      Name: !Sub ${EnvName}-ap-group
+      HealthCheckIntervalSeconds: 15
+      HealthCheckTimeoutSeconds: 10
       UnhealthyThresholdCount: 2
       HealthyThresholdCount: 2
       HealthCheckPath: /
@@ -393,8 +420,8 @@ Resources:
               WeightedCapacity: 1
             - InstanceType: t3.small
               WeightedCapacity: 1
-      MinSize: 3
-      MaxSize: 3
+      MinSize: 2
+      MaxSize: 2
       HealthCheckType: ELB
       HealthCheckGracePeriod: 300
       TargetGroupARNs:
@@ -542,7 +569,7 @@ Resources:
               VendorName: AWS
               Name: AWSManagedRulesAmazonIpReputationList
           OverrideAction:
-            Count: {}
+            None: {}
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: AWSManagedRulesAmazonIpReputationList
@@ -555,7 +582,7 @@ Resources:
               VendorName: AWS
               Name: AWSManagedRulesCommonRuleSet
           OverrideAction:
-            Count: {}
+            None: {}
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: AWSManagedRulesCommonRuleSet
@@ -568,7 +595,7 @@ Resources:
               VendorName: AWS
               Name: AWSManagedRulesKnownBadInputsRuleSet
           OverrideAction:
-            Count: {}
+            None: {}
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: AWSManagedRulesKnownBadInputsRuleSet
@@ -581,7 +608,7 @@ Resources:
               VendorName: AWS
               Name: AWSManagedRulesLinuxRuleSet
           OverrideAction:
-            Count: {}
+            None: {}
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: AWSManagedRulesLinuxRuleSet
