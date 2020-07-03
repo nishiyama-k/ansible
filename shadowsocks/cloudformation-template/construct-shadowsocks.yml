@@ -50,6 +50,10 @@ Parameters:
   KeyPair:
     Type: AWS::EC2::KeyPair::KeyName
     Default: shadowsocks-keypair
+  AdminIP:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR for ssh connection to the server
   AMIID:
     Type: AWS::EC2::Image::Id
     Default: ami-0c3ae97724b825432
@@ -161,7 +165,7 @@ Resources:
         FromPort: 8388
         ToPort: 8388
       - IpProtocol: tcp
-        CidrIp: "0.0.0.0/0"
+        CidrIp: !Ref AdminIP
         Description: "Open ssh port from Internet"
         FromPort: 22
         ToPort: 22
